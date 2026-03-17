@@ -6,6 +6,7 @@ Implement your race simulation logic to predict finishing positions.
 """
 import json
 import sys
+from collections import Counter
 
 # Global configuration data
 PARAMS = {
@@ -64,10 +65,45 @@ def main():
                 age += 1
         
         grid_idx = int(key_pos.replace('pos', ''))
-        results_ledger.append((total_delta, grid_idx, uid))
+        results_ledger.append({
+            "total": total_delta,
+            "grid": grid_idx,
+            "driver_id": uid,
+            "starting_tire": entry['starting_tire'],
+            "pit_stops": entry['pit_stops'],
+        })
 
-    results_ledger.sort(key=lambda x: (x[0], x[1]))
-    finishing_positions = [item[2] for item in results_ledger]
+    tie_groups = {}
+    for row in results_ledger:
+        tie_groups.setdefault(row["total"], []).append(row)
+
+    sorted_rows = []
+    for total_time in sorted(tie_groups.keys()):
+        group = tie_groups[total_time]
+        use_soft_first_tiebreak = False
+
+        if len(group) > 1:
+            starts = Counter(item["starting_tire"] for item in group)
+            same_soft_medium_mix = (
+                starts.get("HARD", 0) == 0
+                and starts.get("SOFT", 0) == starts.get("MEDIUM", 0)
+                and starts.get("SOFT", 0) > 0
+            )
+            all_one_stop_to_hard = all(
+                len(item["pit_stops"]) == 1 and item["pit_stops"][0]["to_tire"] == "HARD"
+                for item in group
+            )
+            use_soft_first_tiebreak = same_soft_medium_mix and all_one_stop_to_hard
+
+        if use_soft_first_tiebreak:
+            tire_rank = {"SOFT": 0, "MEDIUM": 1, "HARD": 2}
+            group.sort(key=lambda item: (tire_rank[item["starting_tire"]], item["grid"]))
+        else:
+            group.sort(key=lambda item: item["grid"])
+
+        sorted_rows.extend(group)
+
+    finishing_positions = [item["driver_id"] for item in sorted_rows]
 
     # Output result to stdout
     output = {
